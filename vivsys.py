@@ -25,7 +25,7 @@ SERVICE_CONTROL_STOP = 0x00000001
 class Device(object):
     def __init__(self, dev_name, access=GENERIC_READ | GENERIC_WRITE, share=0, flags=0):
 
-        self.hDev = windll.kernel32.CreateFileA('\\\\.\\' + dev_name,
+        self.hDev = windll.kernel32.CreateFileW('\\\\.\\' + dev_name,
                                            access,
                                            share,
                                            None,
@@ -67,13 +67,12 @@ class Device(object):
         if outSize:
             return buffer(x)[:]
         
-        print 'Done'
-
-
     def read(self):
+        # TODO
         pass
 
     def write(self):
+        # TODO
         pass
 
 class Driver(object):
@@ -82,46 +81,65 @@ class Driver(object):
         self.path = driver_path
         self.hScm = None
         self.hSvc = None
-        self.hDevs = [] 
+
+    def _cleanupHandles(self):
+        if self.hSvc:
+             windll.Advapi32.CloseServiceHandle(self.hSvc)
+             self.hSvc = None
+        if self.hScm:
+             windll.Advapi32.CloseServiceHandle(self.hScm)
+             self.hScm = None
 
     def load(self):
         print('Loading {}'.format(self.path))
-        self.hScm = windll.Advapi32.OpenSCManagerA(None, None, SC_MANAGER_CREATE_SERVICE)
-        if not self.hScm:
-            raise ctypes.WinError()
+        # Avoid handle leaks
+        self._cleanupHandles()
 
-        # See if the service already exists
-        self.hSvc =  windll.Advapi32.OpenServiceA(self.hScm,
+        try:
+            self.hScm = windll.Advapi32.OpenSCManagerW(None, None, SC_MANAGER_CREATE_SERVICE)
+            if not self.hScm:
+                raise ctypes.WinError()
+
+            # See if the service already exists
+            self.hSvc =  windll.Advapi32.OpenServiceW(self.hScm,
                                                   self.name,
                                                   SERVICE_START | DELETE | SERVICE_STOP)
 
-        if not self.hSvc:
-            self.hSvc = windll.Advapi32.CreateServiceA(self.hScm,
-                                                      self.name,
-                                                      None,
-                                                      SERVICE_START | DELETE | SERVICE_STOP,
-                                                      SERVICE_KERNEL_DRIVER,
-                                                      SERVICE_DEMAND_START,
-                                                      SERVICE_ERROR_IGNORE,
-                                                      self.path,
-                                                      None, None, None, None, None)
-            if not self.hSvc:
+            # Delete a pre-existing service
+            if self.hSvc and not windll.Advapi32.DeleteService(self.hSvc):
                 raise ctypes.WinError()
 
-        if not windll.Advapi32.StartServiceA(self.hSvc, 0, None):
-            err = ctypes.WinError()
-            if ERROR_SERVICE_ALREADY_RUNNING != err.winerror:
-                raise err
+            if not self.hSvc:
+                self.hSvc = windll.Advapi32.CreateServiceW(self.hScm,
+                                                           self.name,
+                                                           None,
+                                                           SERVICE_START | DELETE | SERVICE_STOP,
+                                                           SERVICE_KERNEL_DRIVER,
+                                                           SERVICE_DEMAND_START,
+                                                           SERVICE_ERROR_IGNORE,
+                                                           self.path,
+                                                           None, None, None, None, None)
+            if not self.hSvc:
+                raise ctypes.WinError()
+        
+            if not windll.Advapi32.StartServiceW(self.hSvc, 0, None):
+                err = ctypes.WinError()
+                if ERROR_SERVICE_ALREADY_RUNNING != err.winerror:
+                    raise err
+        except:
+            self._cleanupHandles()
+            raise
 
     def unload(self):
         print('Unloading {}'.format(self.path))
         
+        # Need a service status struct for the ctlsvc call
         service_status = (wintypes.DWORD * 7)()
 
         try:
             if not self.hSvc:
             # See if the service already exists
-                self.hSvc =  windll.Advapi32.OpenServiceA(self.hScm,
+                self.hSvc =  windll.Advapi32.OpenServiceW(self.hScm,
                                                           self.name,
                                                           DELETE | SERVICE_STOP)
             if not self.hSvc:
@@ -135,10 +153,7 @@ class Driver(object):
             if not windll.Advapi32.DeleteService(self.hSvc):
                 raise ctypes.WinError()
         finally:
-             windll.Advapi32.CloseServiceHandle(self.hSvc)
-             self.hSvc = None
-             windll.Advapi32.CloseServiceHandle(self.hScm)
-             self.hScm = None
+            self._cleanupHandles()
 
 def makeCtlCode(func, dev_type=FILE_DEVICE_UNKNOWN, method=0, access=0):
     return (
@@ -150,10 +165,10 @@ def makeCtlCode(func, dev_type=FILE_DEVICE_UNKNOWN, method=0, access=0):
 
 drv = Driver('vivsys', 'C:\\vivsys\\vivsys.sys')
 drv.load()
-print hex(makeCtlCode(0x800))
+ctl_code = makeCtlCode(0x800)
 try:
     dev = Device('vivsys')
-    dev.ioctl(0x222000, 'AAAAAAA')
+    dev.ioctl(ctl_code, bytes([0x41, 0x41, 0x41, 0x41, 0x0a]))
 finally:
     dev.close()
     drv.unload()
