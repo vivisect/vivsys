@@ -53,9 +53,11 @@ dlldata.c
 *.pdb
 *.pgc
 *.pgd
+*.swo
 *.rsp
 *.sbr
 *.tlb
+*.py~
 *.tli
 *.tlh
 *.tmp

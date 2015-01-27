@@ -140,7 +140,6 @@ NTSTATUS doReadKernMem(PIRP Irp, PVOID ioBuffer, ULONG inLength, ULONG outLength
         }
         else
         {
-            DbgPrint("raw copy\n");
             pSysBuff = kAddr;
         }
        
@@ -181,10 +180,6 @@ NTSTATUS handleCommand(PIRP Irp, ULONG ctlCode, PVOID ioBuffer, ULONG inLength, 
         {
             KdPrint(("vivsys.sys: Got read_kmem request\n"));
             nts = doReadKernMem(Irp, ioBuffer, inLength, outLength);
-            if (NT_SUCCESS(nts))
-            {
-                
-            }
             break;
         }
         default:
