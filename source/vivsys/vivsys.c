@@ -66,7 +66,7 @@ NTSTATUS DriverEntry(IN PDRIVER_OBJECT DriverObject, IN PUNICODE_STRING  Registr
         return STATUS_UNEXPECTED_IO_ERROR;
     }
 
-    DbgPrint("Hello World!\n");
+	KdPrint(("Hello World!\n"));
 
     DeviceObject->Flags |= DO_DIRECT_IO;
     DeviceObject->AlignmentRequirement = FILE_WORD_ALIGNMENT;
@@ -84,7 +84,7 @@ void vivsysUnload(IN PDRIVER_OBJECT DriverObject)
     IoDeleteSymbolicLink(&Win32Device);
     IoDeleteDevice(DriverObject->DeviceObject);
 
-    DbgPrint("Goodbye World!\n");
+    KdPrint(("Goodbye World!\n"));
 }
 
 NTSTATUS doReadKernMem(PIRP Irp, PVOID ioBuffer, ULONG inLength, ULONG outLength)
@@ -107,7 +107,7 @@ NTSTATUS doReadKernMem(PIRP Irp, PVOID ioBuffer, ULONG inLength, ULONG outLength
 #ifndef _WIN64
     kAddr = (PVOID)LOWDWORD(((CMD_READ_KMEM*)ioBuffer)->BaseAddr);
 #else
-    kAddr = ((CMD_READ_KMEM*)ioBuffer)->BaseAddr;
+    kAddr = (PVOID)((CMD_READ_KMEM*)ioBuffer)->BaseAddr;
 #endif
 
     kMemSize = ((CMD_READ_KMEM*)ioBuffer)->Size;
@@ -115,6 +115,7 @@ NTSTATUS doReadKernMem(PIRP Irp, PVOID ioBuffer, ULONG inLength, ULONG outLength
 
     if (kAddr <= MmHighestUserAddress)
     {
+		KdPrint(("Tried to Read a user-mode addr: 0x%p\n", kAddr));
         nts = STATUS_INVALID_PARAMETER;
         goto cleanup;
     }
@@ -150,7 +151,7 @@ NTSTATUS doReadKernMem(PIRP Irp, PVOID ioBuffer, ULONG inLength, ULONG outLength
     __except(EXCEPTION_EXECUTE_HANDLER)
     {
         nts = GetExceptionCode();
-        DbgPrint("Exception reading address 0x%P: 0x%X", kAddr, nts);
+		KdPrint(("Exception reading address 0x%p: 0x%x", kAddr, nts));
         goto cleanup;
     }
 
