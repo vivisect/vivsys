@@ -15,7 +15,6 @@
 # Build results
 Win[87]Debug/
 Win[87]Release/
-* Package/
 [Dd]ebug/
 [Dd]ebugPublic/
 [Rr]elease/
@@ -42,7 +41,6 @@ TestResult.xml
 [Dd]ebugPS/
 [Rr]eleasePS/
 dlldata.c
-*.inf
 *.filters
 *_i.c
 *_p.c
