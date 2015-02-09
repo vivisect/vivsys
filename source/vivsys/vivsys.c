@@ -9,7 +9,7 @@
                             METHOD_BUFFERED,      \
                             FILE_ANY_ACCESS)
 
-#define LOWDWORD(x) ((ULONG)(((ULONG_PTR)(x)) & 0xffffffff))
+#define BASEPTR(x) (PVOID)((ULONG_PTR)(x))
 
 void vivsysUnload(IN PDRIVER_OBJECT DriverObject);
 NTSTATUS vivsysCreateClose(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp);
@@ -104,11 +104,7 @@ NTSTATUS doReadKernMem(PIRP Irp, PVOID ioBuffer, ULONG inLength, ULONG outLength
         goto cleanup;
     }
 
-#ifndef _WIN64
-    kAddr = (PVOID)LOWDWORD(((CMD_READ_KMEM*)ioBuffer)->BaseAddr);
-#else
-    kAddr = ((CMD_READ_KMEM*)ioBuffer)->BaseAddr;
-#endif
+	kAddr = BASEPTR(((CMD_READ_KMEM*)ioBuffer)->BaseAddr);
 
     kMemSize = ((CMD_READ_KMEM*)ioBuffer)->Size;
     RtlSecureZeroMemory(ioBuffer, outLength);
