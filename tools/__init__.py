@@ -87,6 +87,8 @@ class Driver(object):
 
     def _doesServiceExist(self):
         rv = False
+        hScm = None
+        hSvc = None
 
         try:
             hScm = windll.Advapi32.OpenSCManagerW(None, None, SC_MANAGER_CREATE_SERVICE)
