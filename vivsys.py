@@ -1,4 +1,6 @@
 from tools import *
+from hashlib import md5
+from binascii import hexlify
 import ctypes
 
 class CmdReadKmem(ctypes.Structure):
@@ -23,9 +25,8 @@ class KMem(Mem):
         self.dev = dev
 # TODO Add slicing
     def read(self, addr, numBytes):
-        kmemRead = 0x800
 
-        ctl_code = makeCtlCode(kmemRead)
+        ctl_code = CTL_CODE(0x800)
         cmdRead = CmdReadKmem()
         cmdRead.baseAddr = addr
         cmdRead.bytesToRead = numBytes
@@ -35,7 +36,16 @@ class KMem(Mem):
 
 class VivSys(Driver):
    def __init__(self):
-       Driver.__init__(self, 'vivsys', 'C:\\vivsys\\vivsys.sys') #TODO: remove this path
+       bin_path = 'C:\\vivsys\\vivsys.sys' #TODO: remove
+       svc_name = None
+
+       with open(bin_path, 'rb') as f:
+           m = md5()
+           m.update(f.read())
+           svc_name = hexlify(m.digest())
+           svc_name = str(svc_name, 'ascii')
+
+       Driver.__init__(self, svc_name, bin_path) 
        self.load()
        self.dev = Device('vivsys')
 
@@ -43,10 +53,13 @@ class VivSys(Driver):
        return KMem(self.dev, baseAddr)
 
 # Test code
+v = None
 try:
     v = VivSys()
     kmem = v.getKMem()
-    print(kmem.read(0x82a02000, 4))
+    #print(kmem.read(0xFFFFF80002A9C970, 4))
 finally:
-    v.unload()
-#blah
+    pass
+    if v:
+        v.unload()
+    
