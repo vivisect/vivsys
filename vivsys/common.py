@@ -21,10 +21,14 @@ kernel32.CreateFileW.restype = HANDLE
 kernel32.CreateFileW.argtypes = [LPWSTR, DWORD, DWORD, LPVOID, DWORD, DWORD, HANDLE]
 kernel32.CloseHandle.restype = BOOL
 kernel32.CloseHandle.argtypes = [HANDLE]
+kernel32.GetCurrentProcess.restype = HANDLE
 kernel32.DeviceIoControl.restype = BOOL
 kernel32.DeviceIoControl.argtypes = [HANDLE, DWORD, LPVOID, DWORD, LPVOID, DWORD, LPVOID, LPVOID]
 kernel32.GetNativeSystemInfo.restype = None
 kernel32.GetNativeSystemInfo.argtypes = [LPVOID]
+IsWow64Process = getattr(kernel32, 'IsWow64Process', None)
+if IsWow64Process != None:
+    IsWow64Process.argtypes = [HANDLE, LPVOID]
 
 advapi32 = windll.advapi32
 advapi32.OpenSCManagerW.restype = HANDLE
@@ -50,6 +54,7 @@ GENERIC_RW    = GENERIC_READ | GENERIC_WRITE
 OPEN_EXISTING = 3
 
 FILE_DEVICE_UNKNOWN = 0x22
+ERROR_BAD_LENGTH = 0x18
 METHOD_BUFFERED = 0
 FILE_ANY_ACCESS = 0
 
@@ -71,6 +76,34 @@ ERROR_SERVICE_ALREADY_RUNNING   = 1056
 ERROR_SERVICE_MARKED_FOR_DELETE = 1072
 
 SERVICE_ALL_ACCESS  = SERVICE_QUERY_STATUS | DELETE | SERVICE_STOP
+
+PAGE_SIZE = 0x1000
+
+class SYSTEM_MODULE32(ctypes.Structure):
+    _fields_ = (
+        ('Reserved', (DWORD * 2)),
+        ('Base', DWORD),
+        ('Size', DWORD),
+        ('Flags', DWORD),
+        ('Index', WORD),
+        ('Unknown', WORD),
+        ('LoadCount', WORD),
+        ('ModuleNameOffset', WORD),
+        ('ImageName', (BYTE * 256)),
+    )
+
+class SYSTEM_MODULE64(ctypes.Structure):
+    _fields_ = (
+        ('Reserved', (QWORD * 2)),
+        ('Base', QWORD),
+        ('Size', DWORD),
+        ('Flags', DWORD),
+        ('Index', WORD),
+        ('Unknown', WORD),
+        ('LoadCount', WORD),
+        ('ModuleNameOffset', WORD),
+        ('ImageName', (BYTE * 256)),
+    )
 
 class SERVICE_STATUS(ctypes.Structure):
     _fields_ = (
@@ -106,4 +139,8 @@ def CTL_CODE(func, devtype=FILE_DEVICE_UNKNOWN, method=METHOD_BUFFERED, access=F
         ((func) << 2) | (method)
     )
 
-
+def fnv1_hash(data):
+    h = 14695981039346656037
+    for i, e in enumerate(data):
+        h = 0xFFFFFFFFFFFFFFFF & (h * 1099511628211) ^ ord(e)
+    return h

@@ -1,20 +1,33 @@
-#include <ntddk.h>
-#include <ntddstor.h>
-#include <mountdev.h>
-#include <ntddvol.h>
-#include <Windef.h>
+#include "common.h"
 
-#define KMEM_READ CTL_CODE(FILE_DEVICE_UNKNOWN,   \
+#define READ_KMEM CTL_CODE(FILE_DEVICE_UNKNOWN,   \
                             0x800,                \
                             METHOD_BUFFERED,      \
                             FILE_ANY_ACCESS)
 
-#define BASEPTR(x) (PVOID)((ULONG_PTR)(x))
+#define GET_KMOD CTL_CODE(FILE_DEVICE_UNKNOWN,   \
+                            0x801,                \
+                            METHOD_BUFFERED,      \
+                            FILE_ANY_ACCESS)
+
+#define WRITE_PORT CTL_CODE(FILE_DEVICE_UNKNOWN,   \
+                            0x802,                \
+                            METHOD_BUFFERED,      \
+                            FILE_ANY_ACCESS)
+
+#define READ_PORT CTL_CODE(FILE_DEVICE_UNKNOWN,   \
+                            0x803,                \
+                            METHOD_BUFFERED,      \
+                            FILE_ANY_ACCESS)
+
+#define LOWDWORD(x) ((ULONG)(((ULONG_PTR)(x)) & 0xffffffff))
 
 void vivsysUnload(IN PDRIVER_OBJECT DriverObject);
 NTSTATUS vivsysCreateClose(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp);
 NTSTATUS vivsysDefaultHandler(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp);
 NTSTATUS vivsysDispatch(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp);
+NTSTATUS GetModuleBase(ULONGLONG ullModHash, PVOID* ppBaseAddress);
+
 
 #pragma pack(push)
 #pragma pack(1)
@@ -23,6 +36,20 @@ typedef struct _CMD_READ_KMEM
     ULONGLONG BaseAddr;
     ULONG Size;
 }CMD_READ_KMEM;
+
+typedef struct _CMD_READ_PORT
+{
+    ULONG Port;
+    ULONG Count;
+}CMD_READ_PORT;
+
+typedef struct _CMD_WRITE_PORT
+{
+	ULONG Port;
+	ULONG Count;
+	BYTE Data[1];
+}CMD_WRITE_PORT;
+
 #pragma pack(pop)
 
 NTSTATUS DriverEntry(IN PDRIVER_OBJECT DriverObject, IN PUNICODE_STRING  RegistryPath)
@@ -104,7 +131,11 @@ NTSTATUS doReadKernMem(PIRP Irp, PVOID ioBuffer, ULONG inLength, ULONG outLength
         goto cleanup;
     }
 
-	kAddr = BASEPTR(((CMD_READ_KMEM*)ioBuffer)->BaseAddr);
+#ifndef _WIN64
+    kAddr = (PVOID)LOWDWORD(((CMD_READ_KMEM*)ioBuffer)->BaseAddr);
+#else
+    kAddr = (PVOID)((CMD_READ_KMEM*)ioBuffer)->BaseAddr;
+#endif
 
     kMemSize = ((CMD_READ_KMEM*)ioBuffer)->Size;
     RtlSecureZeroMemory(ioBuffer, outLength);
@@ -161,6 +192,102 @@ cleanup:
     return nts;
 }
 
+NTSTATUS getKernModList(PIRP Irp, PVOID ioBuffer, ULONG inLength, ULONG outLength)
+{
+    PSYSTEM_MODULE_INFORMATION pSysModList = NULL;
+    ULONG ulBufferSize = 0;
+	ULONG ulTotalSize = 0;
+	ULONG_PTR pTmp = 0;
+	NTSTATUS nts = STATUS_UNSUCCESSFUL;
+
+    UNREFERENCED_PARAMETER(inLength);
+
+	if (NULL == ioBuffer ||
+        0 == outLength)
+	{
+		nts = STATUS_INVALID_PARAMETER;
+		goto cleanup;
+	}
+
+    pTmp = (ULONG_PTR)ioBuffer;
+
+    nts = GetSystemModuleArray(&pSysModList, &ulBufferSize);
+    if (!NT_SUCCESS(nts))
+    {
+        goto cleanup;
+    }
+
+	if (S_OK != ULongAdd(ulBufferSize, sizeof(ULONG), &ulTotalSize))
+	{
+		nts = STATUS_INTEGER_OVERFLOW;
+		goto cleanup;
+	}
+
+	if (ulTotalSize > outLength)
+    {
+        nts = STATUS_INFO_LENGTH_MISMATCH;
+        goto cleanup;
+    }
+
+	
+	*(ULONG*)pTmp = sizeof(ULONG_PTR);
+	pTmp += sizeof(ULONG);
+
+	RtlCopyMemory((PVOID)pTmp, pSysModList, ulBufferSize);
+    Irp->IoStatus.Information = ulBufferSize;
+cleanup:
+    if (pSysModList)
+    {
+        ExFreePool(pSysModList);
+        pSysModList = NULL;
+    }
+
+	return nts;
+}
+
+NTSTATUS doWriteIoPort(PVOID ioBuffer, ULONG inLength)
+{
+	NTSTATUS nts = STATUS_SUCCESS;
+	PUCHAR port = NULL;
+	ULONG count = 0;
+    //UCHAR pTmp[250] = { 0 };
+
+	if (NULL == ioBuffer || 
+		sizeof(CMD_WRITE_PORT) > inLength ||
+		0 == ((CMD_WRITE_PORT*)ioBuffer)->Count)
+	{
+		return STATUS_INVALID_PARAMETER;
+	}
+
+	port = (PUCHAR)((CMD_WRITE_PORT*)ioBuffer)->Port;
+	count = ((CMD_WRITE_PORT*)ioBuffer)->Count;
+
+    WRITE_PORT_BUFFER_UCHAR(port, ((CMD_WRITE_PORT*)ioBuffer)->Data, count);
+
+	return nts;
+}
+
+NTSTATUS doReadIoPort(PIRP Irp, PVOID ioBuffer, ULONG inLength, ULONG outLength)
+{
+    NTSTATUS nts = STATUS_SUCCESS;
+    PUCHAR port = NULL;
+    ULONG count = 0;
+
+    if (NULL == ioBuffer ||
+        sizeof(CMD_READ_PORT) != inLength ||
+        ((CMD_READ_PORT*)ioBuffer)->Count != outLength)
+    {
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    port = (PUCHAR)((CMD_READ_PORT*)ioBuffer)->Port;
+    count = ((CMD_READ_PORT*)ioBuffer)->Count;
+
+    READ_PORT_BUFFER_UCHAR(port, (PUCHAR)ioBuffer, count);
+    Irp->IoStatus.Information = count;
+    return nts;
+}
+
 NTSTATUS handleCommand(PIRP Irp, ULONG ctlCode, PVOID ioBuffer, ULONG inLength, ULONG outLength)
 {
     NTSTATUS nts = STATUS_UNSUCCESSFUL;
@@ -173,14 +300,33 @@ NTSTATUS handleCommand(PIRP Irp, ULONG ctlCode, PVOID ioBuffer, ULONG inLength, 
     // Commands go here
     switch (ctlCode)
     {
-        case KMEM_READ:
+        case READ_KMEM:
         {
             KdPrint(("vivsys.sys: Got read_kmem request\n"));
             nts = doReadKernMem(Irp, ioBuffer, inLength, outLength);
             break;
         }
+		case GET_KMOD:
+		{
+			KdPrint(("vivsys.sys: Got get_kmod request\n"));
+			nts = getKernModList(Irp, ioBuffer, inLength, outLength);
+			break;
+		}
+		case WRITE_PORT:
+		{
+			KdPrint(("vivsys.sys: Got write_port request\n"));
+			nts = doWriteIoPort(ioBuffer, inLength);
+			break;
+		}
+        case READ_PORT:
+        {
+            KdPrint(("vivsys.sys: Got read_port request\n"));
+            nts = doReadIoPort(Irp, ioBuffer, inLength, outLength);
+            break;
+        }
         default:
         {
+
             nts = STATUS_INVALID_PARAMETER;
             goto cleanup;
         }
@@ -189,6 +335,10 @@ NTSTATUS handleCommand(PIRP Irp, ULONG ctlCode, PVOID ioBuffer, ULONG inLength, 
 cleanup:
     return nts;
 }
+
+
+
+
 
 NTSTATUS vivsysDispatch(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp)
 {
