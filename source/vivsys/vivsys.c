@@ -1,56 +1,11 @@
 #include "common.h"
-
-#define READ_KMEM CTL_CODE(FILE_DEVICE_UNKNOWN,   \
-                            0x800,                \
-                            METHOD_BUFFERED,      \
-                            FILE_ANY_ACCESS)
-
-#define GET_KMOD CTL_CODE(FILE_DEVICE_UNKNOWN,   \
-                            0x801,                \
-                            METHOD_BUFFERED,      \
-                            FILE_ANY_ACCESS)
-
-#define WRITE_PORT CTL_CODE(FILE_DEVICE_UNKNOWN,   \
-                            0x802,                \
-                            METHOD_BUFFERED,      \
-                            FILE_ANY_ACCESS)
-
-#define READ_PORT CTL_CODE(FILE_DEVICE_UNKNOWN,   \
-                            0x803,                \
-                            METHOD_BUFFERED,      \
-                            FILE_ANY_ACCESS)
-
-#define LOWDWORD(x) ((ULONG)(((ULONG_PTR)(x)) & 0xffffffff))
+#include "cmd.h"
 
 void vivsysUnload(IN PDRIVER_OBJECT DriverObject);
 NTSTATUS vivsysCreateClose(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp);
 NTSTATUS vivsysDefaultHandler(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp);
 NTSTATUS vivsysDispatch(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp);
 NTSTATUS GetModuleBase(ULONGLONG ullModHash, PVOID* ppBaseAddress);
-
-
-#pragma pack(push)
-#pragma pack(1)
-typedef struct _CMD_READ_KMEM
-{
-    ULONGLONG BaseAddr;
-    ULONG Size;
-}CMD_READ_KMEM;
-
-typedef struct _CMD_READ_PORT
-{
-    ULONG Port;
-    ULONG Count;
-}CMD_READ_PORT;
-
-typedef struct _CMD_WRITE_PORT
-{
-	ULONG Port;
-	ULONG Count;
-	BYTE Data[1];
-}CMD_WRITE_PORT;
-
-#pragma pack(pop)
 
 NTSTATUS DriverEntry(IN PDRIVER_OBJECT DriverObject, IN PUNICODE_STRING  RegistryPath)
 {
@@ -76,12 +31,12 @@ NTSTATUS DriverEntry(IN PDRIVER_OBJECT DriverObject, IN PUNICODE_STRING  Registr
     DriverObject->DriverUnload = vivsysUnload;
 
     nts = IoCreateDevice(DriverObject,
-        0,
-        &DeviceName,
-        FILE_DEVICE_UNKNOWN,
-        0,
-        FALSE,
-        &DeviceObject);
+                         0,
+                         &DeviceName,
+                         FILE_DEVICE_UNKNOWN,
+                         0,
+                         FALSE,
+                         &DeviceObject);
 
     if (!NT_SUCCESS(nts))
     {
@@ -114,179 +69,7 @@ void vivsysUnload(IN PDRIVER_OBJECT DriverObject)
     KdPrint(("Goodbye World!\n"));
 }
 
-NTSTATUS doReadKernMem(PIRP Irp, PVOID ioBuffer, ULONG inLength, ULONG outLength)
-{
-    NTSTATUS nts = STATUS_UNSUCCESSFUL;
-    PMDL mdl = NULL;
-    PVOID kAddr = NULL;
-    ULONG kMemSize = 0;
-    PVOID pSysBuff = NULL;
 
-    if (NULL == ioBuffer ||
-        sizeof(CMD_READ_KMEM) != inLength ||
-        0 == outLength ||
-        0 == ((CMD_READ_KMEM*)ioBuffer)->Size)
-    {
-        nts = STATUS_INVALID_PARAMETER;
-        goto cleanup;
-    }
-
-#ifndef _WIN64
-    kAddr = (PVOID)LOWDWORD(((CMD_READ_KMEM*)ioBuffer)->BaseAddr);
-#else
-    kAddr = (PVOID)((CMD_READ_KMEM*)ioBuffer)->BaseAddr;
-#endif
-
-    kMemSize = ((CMD_READ_KMEM*)ioBuffer)->Size;
-    RtlSecureZeroMemory(ioBuffer, outLength);
-
-    if (kAddr <= MmHighestUserAddress)
-    {
-		KdPrint(("Tried to Read a user-mode addr: 0x%p\n", kAddr));
-        nts = STATUS_INVALID_PARAMETER;
-        goto cleanup;
-    }
-
-    __try
-    {
-        if (KeGetCurrentIrql() >= DISPATCH_LEVEL)
-        {
-            mdl = IoAllocateMdl(kAddr, kMemSize, FALSE, FALSE, NULL);
-            if (NULL == mdl)
-            {
-                nts = STATUS_INSUFFICIENT_RESOURCES;
-                goto cleanup;
-            }
-
-            MmProbeAndLockPages(mdl, KernelMode, IoReadAccess);
-            pSysBuff = MmGetSystemAddressForMdlSafe(mdl, NormalPagePriority);
-            if (NULL == pSysBuff)
-            {
-                nts = STATUS_INVALID_PARAMETER;
-                goto cleanup;
-            }
-        }
-        else
-        {
-            pSysBuff = kAddr;
-        }
-       
-        nts = STATUS_SUCCESS;
-        RtlCopyMemory(ioBuffer, pSysBuff, outLength);
-        Irp->IoStatus.Information = outLength;
-    }
-    __except(EXCEPTION_EXECUTE_HANDLER)
-    {
-        nts = GetExceptionCode();
-		KdPrint(("Exception reading address 0x%p: 0x%x", kAddr, nts));
-        goto cleanup;
-    }
-
-cleanup:
-    if (mdl)
-    {
-        MmUnlockPages(mdl);
-        IoFreeMdl(mdl);
-        mdl = NULL;
-    }
-    return nts;
-}
-
-NTSTATUS getKernModList(PIRP Irp, PVOID ioBuffer, ULONG inLength, ULONG outLength)
-{
-    PSYSTEM_MODULE_INFORMATION pSysModList = NULL;
-    ULONG ulBufferSize = 0;
-	ULONG ulTotalSize = 0;
-	ULONG_PTR pTmp = 0;
-	NTSTATUS nts = STATUS_UNSUCCESSFUL;
-
-    UNREFERENCED_PARAMETER(inLength);
-
-	if (NULL == ioBuffer ||
-        0 == outLength)
-	{
-		nts = STATUS_INVALID_PARAMETER;
-		goto cleanup;
-	}
-
-    pTmp = (ULONG_PTR)ioBuffer;
-
-    nts = GetSystemModuleArray(&pSysModList, &ulBufferSize);
-    if (!NT_SUCCESS(nts))
-    {
-        goto cleanup;
-    }
-
-	if (S_OK != ULongAdd(ulBufferSize, sizeof(ULONG), &ulTotalSize))
-	{
-		nts = STATUS_INTEGER_OVERFLOW;
-		goto cleanup;
-	}
-
-	if (ulTotalSize > outLength)
-    {
-        nts = STATUS_INFO_LENGTH_MISMATCH;
-        goto cleanup;
-    }
-
-	
-	*(ULONG*)pTmp = sizeof(ULONG_PTR);
-	pTmp += sizeof(ULONG);
-
-	RtlCopyMemory((PVOID)pTmp, pSysModList, ulBufferSize);
-    Irp->IoStatus.Information = ulBufferSize;
-cleanup:
-    if (pSysModList)
-    {
-        ExFreePool(pSysModList);
-        pSysModList = NULL;
-    }
-
-	return nts;
-}
-
-NTSTATUS doWriteIoPort(PVOID ioBuffer, ULONG inLength)
-{
-	NTSTATUS nts = STATUS_SUCCESS;
-	PUCHAR port = NULL;
-	ULONG count = 0;
-    //UCHAR pTmp[250] = { 0 };
-
-	if (NULL == ioBuffer || 
-		sizeof(CMD_WRITE_PORT) > inLength ||
-		0 == ((CMD_WRITE_PORT*)ioBuffer)->Count)
-	{
-		return STATUS_INVALID_PARAMETER;
-	}
-
-	port = (PUCHAR)((CMD_WRITE_PORT*)ioBuffer)->Port;
-	count = ((CMD_WRITE_PORT*)ioBuffer)->Count;
-
-    WRITE_PORT_BUFFER_UCHAR(port, ((CMD_WRITE_PORT*)ioBuffer)->Data, count);
-
-	return nts;
-}
-
-NTSTATUS doReadIoPort(PIRP Irp, PVOID ioBuffer, ULONG inLength, ULONG outLength)
-{
-    NTSTATUS nts = STATUS_SUCCESS;
-    PUCHAR port = NULL;
-    ULONG count = 0;
-
-    if (NULL == ioBuffer ||
-        sizeof(CMD_READ_PORT) != inLength ||
-        ((CMD_READ_PORT*)ioBuffer)->Count != outLength)
-    {
-        return STATUS_INVALID_PARAMETER;
-    }
-
-    port = (PUCHAR)((CMD_READ_PORT*)ioBuffer)->Port;
-    count = ((CMD_READ_PORT*)ioBuffer)->Count;
-
-    READ_PORT_BUFFER_UCHAR(port, (PUCHAR)ioBuffer, count);
-    Irp->IoStatus.Information = count;
-    return nts;
-}
 
 NTSTATUS handleCommand(PIRP Irp, ULONG ctlCode, PVOID ioBuffer, ULONG inLength, ULONG outLength)
 {
@@ -324,6 +107,18 @@ NTSTATUS handleCommand(PIRP Irp, ULONG ctlCode, PVOID ioBuffer, ULONG inLength, 
             nts = doReadIoPort(Irp, ioBuffer, inLength, outLength);
             break;
         }
+        case ALLOC_POOL:
+        {
+            KdPrint(("vivsys.sys: Got alloc_pool request\n"));
+            nts = doPoolAlloc(Irp, ioBuffer, inLength, outLength);
+            break;
+        }
+        case FREE_POOL:
+        {
+            KdPrint(("vivsys.sys: Got free_pool request\n"));
+            nts = doPoolFree(Irp, ioBuffer, inLength, outLength);
+            break;
+        }
         default:
         {
 
@@ -335,10 +130,6 @@ NTSTATUS handleCommand(PIRP Irp, ULONG ctlCode, PVOID ioBuffer, ULONG inLength, 
 cleanup:
     return nts;
 }
-
-
-
-
 
 NTSTATUS vivsysDispatch(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp)
 {

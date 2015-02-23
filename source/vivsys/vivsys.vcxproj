@@ -196,10 +196,12 @@
     <FilesToPackage Include="@(Inf->'%(CopyOutput)')" Condition="'@(Inf)'!=''" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="cmd.c" />
     <ClCompile Include="common.c" />
     <ClCompile Include="vivsys.c" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="cmd.h" />
     <ClInclude Include="common.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

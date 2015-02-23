@@ -5,7 +5,11 @@
 #include <intsafe.h>
 #include <Windef.h>
 
+#ifndef COMMON_H
+#define COMMON_H
+
 #define MAX_SYS_MOD_NAME 256 
+#define LOWDWORD(x) ((ULONG)(((ULONG_PTR)(x)) & 0xffffffff))
 
 typedef enum _SYSTEM_INFORMATION_CLASS
 {
@@ -40,3 +44,5 @@ __out PULONG ReturnLength OPTIONAL);
 
 ULONGLONG fnv1_hash_string(VOID *key, ULONG n_bytes, BOOLEAN bNormalize);
 NTSTATUS GetSystemModuleArray(PSYSTEM_MODULE_INFORMATION *pModuleInfo, ULONG *ulBufferSize);
+
+#endif
