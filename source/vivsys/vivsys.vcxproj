@@ -188,6 +188,26 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Win7 Release|x64'">
     <DebuggerFlavor>DbgengKernelDebugger</DebuggerFlavor>
   </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Win7 Debug|Win32'">
+    <PostBuildEvent>
+      <Command>copy /Y $(TargetPath) $(SolutionDir)..\vivsys\vivsys_i386.sys</Command>
+    </PostBuildEvent>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Win7 Release|Win32'">
+    <PostBuildEvent>
+      <Command>copy /Y $(TargetPath) $(SolutionDir)..\vivsys\vivsys_i386.sys</Command>
+    </PostBuildEvent>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Win7 Debug|x64'">
+    <PostBuildEvent>
+      <Command>copy /Y $(TargetPath) $(SolutionDir)..\vivsys\vivsys_amd64.sys</Command>
+    </PostBuildEvent>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Win7 Release|x64'">
+    <PostBuildEvent>
+      <Command>copy /Y $(TargetPath) $(SolutionDir)..\vivsys\vivsys_amd64.sys</Command>
+    </PostBuildEvent>
+  </ItemDefinitionGroup>
   <ItemGroup>
     <Inf Include="vivsys.inf" />
   </ItemGroup>
