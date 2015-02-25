@@ -79,6 +79,9 @@ SERVICE_ALL_ACCESS  = SERVICE_QUERY_STATUS | DELETE | SERVICE_STOP
 
 PAGE_SIZE = 0x1000
 
+NonPagedPool = 0
+PagedPool = 1
+
 class SYSTEM_MODULE32(ctypes.Structure):
     _fields_ = (
         ('Reserved', (DWORD * 2)),

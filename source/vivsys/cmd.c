@@ -78,6 +78,82 @@ cleanup:
     return nts;
 }
 
+NTSTATUS doWriteKernMem(PVOID ioBuffer, ULONG inLength)
+{
+    NTSTATUS nts = STATUS_UNSUCCESSFUL;
+    PMDL mdl = NULL;
+    PVOID kAddr = NULL;
+    ULONG NumBytes = 0;
+    PVOID pSysBuff = NULL;
+
+    if (NULL == ioBuffer ||
+        sizeof(CMD_WRITE_KMEM) >= inLength ||
+        0 == ((CMD_WRITE_KMEM*)ioBuffer)->NumBytes)
+    {
+        nts = STATUS_INVALID_PARAMETER;
+        goto cleanup;
+    }
+
+#ifndef _WIN64
+    kAddr = (PVOID)LOWDWORD(((CMD_WRITE_KMEM*)ioBuffer)->BaseAddr);
+#else
+    kAddr = (PVOID)((CMD_WRITE_KMEM*)ioBuffer)->BaseAddr;
+#endif
+
+    NumBytes = ((CMD_WRITE_KMEM*)ioBuffer)->NumBytes;
+
+    if (kAddr <= MmHighestUserAddress)
+    {
+        KdPrint(("Tried to Write to a user-mode addr: 0x%p\n", kAddr));
+        nts = STATUS_INVALID_PARAMETER;
+        goto cleanup;
+    }
+
+    __try
+    {
+        if (KeGetCurrentIrql() >= DISPATCH_LEVEL)
+        {
+            mdl = IoAllocateMdl(kAddr, NumBytes, FALSE, FALSE, NULL);
+            if (NULL == mdl)
+            {
+                nts = STATUS_INSUFFICIENT_RESOURCES;
+                goto cleanup;
+            }
+
+            MmProbeAndLockPages(mdl, KernelMode, IoWriteAccess);
+            pSysBuff = MmGetSystemAddressForMdlSafe(mdl, NormalPagePriority);
+            if (NULL == pSysBuff)
+            {
+                nts = STATUS_INVALID_PARAMETER;
+                goto cleanup;
+            }
+        }
+        else
+        {
+            pSysBuff = kAddr;
+        }
+
+        RtlCopyMemory(pSysBuff, ((CMD_WRITE_KMEM*)ioBuffer)->Data, NumBytes);
+        nts = STATUS_SUCCESS;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        nts = GetExceptionCode();
+        KdPrint(("Exception writing to address 0x%p: 0x%x", kAddr, nts));
+        goto cleanup;
+    }
+
+cleanup:
+    if (mdl)
+    {
+        MmUnlockPages(mdl);
+        IoFreeMdl(mdl);
+        mdl = NULL;
+    }
+    return nts;
+}
+
+
 NTSTATUS getKernModList(PIRP Irp, PVOID ioBuffer, ULONG inLength, ULONG outLength)
 {
     PSYSTEM_MODULE_INFORMATION pSysModList = NULL;
@@ -181,7 +257,7 @@ NTSTATUS doPoolAlloc(PIRP Irp, PVOID ioBuffer, ULONG inLength, ULONG outLength)
     PVOID pBuffer = NULL;
 
     if (sizeof(CMD_ALLOC_POOL) != inLength ||
-        NULL != ioBuffer ||
+        NULL == ioBuffer ||
         0 == ((CMD_ALLOC_POOL*)ioBuffer)->NumBytes ||
         sizeof(ULONGLONG) != outLength)
     {
@@ -198,6 +274,8 @@ NTSTATUS doPoolAlloc(PIRP Irp, PVOID ioBuffer, ULONG inLength, ULONG outLength)
         nts = STATUS_INSUFFICIENT_RESOURCES;
         goto cleanup;
     }
+
+    RtlZeroMemory(pBuffer, AllocSize);
 
     *(ULONGLONG*)ioBuffer = (ULONGLONG)pBuffer;
     Irp->IoStatus.Information = sizeof(ULONGLONG);
@@ -216,7 +294,8 @@ NTSTATUS doPoolFree(PIRP Irp, PVOID ioBuffer, ULONG inLength, ULONG outLength)
 
     if (sizeof(CMD_FREE_POOL) != inLength ||
         0 != outLength || 
-        NULL == ioBuffer)
+        NULL == ioBuffer || 
+        0 == ((CMD_FREE_POOL*)ioBuffer)->pAddress)
     {
         nts = STATUS_INVALID_PARAMETER;
         goto cleanup;
@@ -225,6 +304,7 @@ NTSTATUS doPoolFree(PIRP Irp, PVOID ioBuffer, ULONG inLength, ULONG outLength)
     pAddr = (ULONG_PTR)((CMD_FREE_POOL*)ioBuffer)->pAddress;
 
     ExFreePool((PVOID)pAddr);
+    pAddr = 0;
     nts = STATUS_SUCCESS;
 
 cleanup:

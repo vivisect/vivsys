@@ -33,10 +33,20 @@ class CmdReadIoPort(ctypes.Structure):
         ("count", ctypes.c_uint32)
     )
 
+class CmdAllocPool(ctypes.Structure):
+    _pack_ = 1
+    _fields_ = (
+        ("poolType", ctypes.c_uint32),
+        ("numBytes", ctypes.c_uint32)
+    )
+
 READ_KMEM = CTL_CODE(0x800)
-GET_KMOD_LIST  = CTL_CODE(0x801)
-WRITE_IO_PORT  = CTL_CODE(0x802)
-READ_IO_PORT  = CTL_CODE(0x803)
+WRITE_KMEM = CTL_CODE(0x801)
+GET_KMOD_LIST  = CTL_CODE(0x802)
+WRITE_IO_PORT  = CTL_CODE(0x803)
+READ_IO_PORT  = CTL_CODE(0x804)
+ALLOC_POOL = CTL_CODE(0x805)
+FREE_POOL = CTL_CODE(0x806)
 
 class VivSys:
 
@@ -58,6 +68,18 @@ class VivSys:
             raise ctypes.WinError()
 
         return buf.raw
+
+    def writeMemory(self, address, data):
+        addr = int(address).to_bytes(ctypes.sizeof(QWORD),  byteorder='little')
+        count = len(data).to_bytes(ctypes.sizeof(DWORD),  byteorder='little')
+        write_mem = addr + count + bytes(data)
+
+        in_buf = ctypes.create_string_buffer(len(write_mem))
+        in_buf.value = write_mem
+
+        retval, retsize = self.dev.ioctl(WRITE_KMEM, inStruct=in_buf)
+        if not retval:
+            raise ctypes.WinError()
 
     # TODO: make a ctypes struct def for this
     def writeIoPort(self, port, data):
@@ -139,5 +161,22 @@ class VivSys:
 
         return mod_list
 
+    def allocPool(self, pool_type, num_bytes):
+        cmd_alloc = CmdAllocPool()
+        cmd_alloc.poolType = pool_type
+        cmd_alloc.numBytes = num_bytes
 
-    
+        addr = ctypes.c_uint64()
+
+        retval, retsize = self.dev.ioctl(ALLOC_POOL, inStruct=cmd_alloc, outStruct=addr)
+        if not retval:
+            raise ctypes.WinError()
+
+        return addr.value
+
+    def freePool(self, address):
+        addr = ctypes.c_uint64(address)
+
+        retval, retsize = self.dev.ioctl(FREE_POOL, inStruct=addr)
+        if not retval:
+            raise ctypes.WinError()

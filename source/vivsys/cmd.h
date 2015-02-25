@@ -6,28 +6,33 @@
                             METHOD_BUFFERED,      \
                             FILE_ANY_ACCESS)
 
-#define GET_KMOD CTL_CODE(FILE_DEVICE_UNKNOWN,    \
+#define WRITE_KMEM CTL_CODE(FILE_DEVICE_UNKNOWN,   \
                             0x801,                \
                             METHOD_BUFFERED,      \
                             FILE_ANY_ACCESS)
 
-#define WRITE_PORT CTL_CODE(FILE_DEVICE_UNKNOWN,  \
+#define GET_KMOD CTL_CODE(FILE_DEVICE_UNKNOWN,    \
                             0x802,                \
                             METHOD_BUFFERED,      \
                             FILE_ANY_ACCESS)
 
-#define READ_PORT CTL_CODE(FILE_DEVICE_UNKNOWN,   \
+#define WRITE_PORT CTL_CODE(FILE_DEVICE_UNKNOWN,  \
                             0x803,                \
                             METHOD_BUFFERED,      \
                             FILE_ANY_ACCESS)
 
-#define ALLOC_POOL CTL_CODE(FILE_DEVICE_UNKNOWN,  \
+#define READ_PORT CTL_CODE(FILE_DEVICE_UNKNOWN,   \
                             0x804,                \
                             METHOD_BUFFERED,      \
                             FILE_ANY_ACCESS)
 
-#define FREE_POOL CTL_CODE(FILE_DEVICE_UNKNOWN,  \
+#define ALLOC_POOL CTL_CODE(FILE_DEVICE_UNKNOWN,  \
                             0x805,                \
+                            METHOD_BUFFERED,      \
+                            FILE_ANY_ACCESS)
+
+#define FREE_POOL CTL_CODE(FILE_DEVICE_UNKNOWN,   \
+                            0x806,                \
                             METHOD_BUFFERED,      \
                             FILE_ANY_ACCESS)
 
@@ -39,6 +44,13 @@ typedef struct _CMD_READ_KMEM
     ULONGLONG BaseAddr;
     ULONG Size;
 }CMD_READ_KMEM;
+
+typedef struct _CMD_WRITE_KMEM
+{
+    ULONGLONG BaseAddr;
+    ULONG NumBytes;
+    BYTE Data[1];
+}CMD_WRITE_KMEM;
 
 typedef struct _CMD_READ_PORT
 {
@@ -70,5 +82,6 @@ NTSTATUS doReadIoPort(PIRP Irp, PVOID ioBuffer, ULONG inLength, ULONG outLength)
 NTSTATUS doWriteIoPort(PVOID ioBuffer, ULONG inLength);
 NTSTATUS getKernModList(PIRP Irp, PVOID ioBuffer, ULONG inLength, ULONG outLength);
 NTSTATUS doReadKernMem(PIRP Irp, PVOID ioBuffer, ULONG inLength, ULONG outLength);
+NTSTATUS doWriteKernMem(PVOID ioBuffer, ULONG inLength);
 NTSTATUS doPoolAlloc(PIRP Irp, PVOID ioBuffer, ULONG inLength, ULONG outLength);
 NTSTATUS doPoolFree(PIRP Irp, PVOID ioBuffer, ULONG inLength, ULONG outLength);

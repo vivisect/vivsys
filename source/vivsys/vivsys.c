@@ -89,6 +89,12 @@ NTSTATUS handleCommand(PIRP Irp, ULONG ctlCode, PVOID ioBuffer, ULONG inLength, 
             nts = doReadKernMem(Irp, ioBuffer, inLength, outLength);
             break;
         }
+        case WRITE_KMEM:
+        {
+            KdPrint(("vivsys.sys: Got write_kmem request\n"));
+            nts = doWriteKernMem(ioBuffer, inLength);
+            break;
+        }
 		case GET_KMOD:
 		{
 			KdPrint(("vivsys.sys: Got get_kmod request\n"));
@@ -119,6 +125,7 @@ NTSTATUS handleCommand(PIRP Irp, ULONG ctlCode, PVOID ioBuffer, ULONG inLength, 
             nts = doPoolFree(Irp, ioBuffer, inLength, outLength);
             break;
         }
+
         default:
         {
 
